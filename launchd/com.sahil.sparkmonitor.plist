@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sahil.sparkmonitor</string>
+
+    <!-- Edit this path if your checkout lives elsewhere. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/sahil/Developer/DGX/spark-monitor/.build/release/SparkMonitor</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Uncomment to override defaults:
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SPARK_HOST</key>
+        <string>nvidia-dgx-spark</string>
+        <key>SPARK_POLL_SECS</key>
+        <string>15</string>
+    </dict>
+    -->
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/sparkmonitor.err.log</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/sparkmonitor.out.log</string>
+</dict>
+</plist>
