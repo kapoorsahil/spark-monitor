@@ -1,0 +1,47 @@
+[
+  {"comment": "--- LLM UIs ---"},
+  {"match": "title", "pattern": "Open WebUI",     "service": "Open WebUI",     "group": "ui",            "path": "/"},
+  {"match": "title", "pattern": "AnythingLLM",    "service": "AnythingLLM",    "group": "ui",            "path": "/"},
+  {"match": "title", "pattern": "Lobe Chat",      "service": "Lobe Chat",      "group": "ui",            "path": "/"},
+  {"match": "title", "pattern": "Jan",             "service": "Jan",            "group": "ui",            "path": "/"},
+  {"match": "title", "pattern": "text-generation-webui", "service": "oobabooga", "group": "ui",          "path": "/"},
+
+  {"comment": "--- LLM inference ---"},
+  {"match": "endpoint", "path": "/v1/models",     "probe": "openai_compat",    "service": null,          "group": "inference", "path": ""},
+  {"match": "endpoint", "path": "/api/tags",      "probe": "ollama",           "service": "Ollama",      "group": "inference", "path": ""},
+  {"match": "title", "pattern": "LiteLLM",        "service": "LiteLLM",        "group": "inference",     "path": "/"},
+  {"match": "title", "pattern": "LocalAI",        "service": "LocalAI",        "group": "inference",     "path": "/"},
+
+  {"comment": "--- Image generation ---"},
+  {"match": "title", "pattern": "Stable Diffusion", "service": "Stable Diffusion", "group": "ui",        "path": "/"},
+  {"match": "title", "pattern": "ComfyUI",         "service": "ComfyUI",        "group": "ui",           "path": "/"},
+  {"match": "title", "pattern": "InvokeAI",        "service": "InvokeAI",       "group": "ui",           "path": "/"},
+
+  {"comment": "--- Orchestration / agents ---"},
+  {"match": "title", "pattern": "Flowise",         "service": "Flowise",        "group": "orchestration", "path": "/"},
+  {"match": "title", "pattern": "LangFlow",        "service": "LangFlow",       "group": "orchestration", "path": "/"},
+  {"match": "title", "pattern": "n8n",             "service": "n8n",            "group": "orchestration", "path": "/"},
+  {"match": "title", "pattern": "Dify",            "service": "Dify",           "group": "orchestration", "path": "/"},
+
+  {"comment": "--- Data / notebooks ---"},
+  {"match": "title", "pattern": "JupyterLab",     "service": "JupyterLab",     "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "Jupyter",        "service": "Jupyter",        "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "Grafana",        "service": "Grafana",        "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "Prometheus",     "service": "Prometheus",     "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "Netdata",        "service": "Netdata",        "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "pgAdmin",        "service": "pgAdmin",        "group": "data",          "path": "/"},
+  {"match": "title", "pattern": "Metabase",       "service": "Metabase",       "group": "data",          "path": "/"},
+
+  {"comment": "--- Dev tools ---"},
+  {"match": "title", "pattern": "code-server",    "service": "code-server",    "group": "tools",         "path": "/"},
+  {"match": "title", "pattern": "Gitea",          "service": "Gitea",          "group": "tools",         "path": "/"},
+  {"match": "title", "pattern": "Portainer",      "service": "Portainer",      "group": "tools",         "path": "/"},
+  {"match": "title", "pattern": "Traefik",        "service": "Traefik",        "group": "tools",         "path": "/"},
+
+  {"comment": "--- Search ---"},
+  {"match": "title", "pattern": "SearXNG",        "service": "SearXNG",        "group": "tools",         "path": "/"},
+  {"match": "title", "pattern": "Whoogle",        "service": "Whoogle",        "group": "tools",         "path": "/"},
+
+  {"comment": "--- MCP servers (common HTTP-based) ---"},
+  {"match": "endpoint", "path": "/mcp",           "probe": "mcp_json",         "service": "MCP server",  "group": "mcp",       "path": ""}
+]
