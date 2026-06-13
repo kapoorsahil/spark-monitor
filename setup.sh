@@ -86,7 +86,8 @@ fi
 
 echo "Installing to /Applications..."
 osascript -e 'tell application "SparkMonitor" to quit' 2>/dev/null || true
-pkill -f "$DEST/Contents/MacOS/SparkMonitor" 2>/dev/null || true
+pkill -f SparkMonitor 2>/dev/null || true
+sleep 0.5
 rm -rf "$DEST"
 cp -R "$APP" "$DEST"
 
