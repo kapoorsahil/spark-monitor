@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build SparkMonitor.app — a double-clickable macOS menu bar app bundle.
+# Build SparkMonitor.app, a macOS menu bar app bundle.
+#
+# Most users want setup.sh, not this. This is the lower-level builder.
 #
 #   ./make-app.sh            build SparkMonitor.app in this folder
 #   ./make-app.sh --install  also copy it to /Applications and launch it
@@ -15,7 +17,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/SparkMonitor "$APP/Contents/MacOS/SparkMonitor"
 cp Info.plist "$APP/Contents/Info.plist"
-# Local build run by its author isn't quarantined, but strip just in case.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 echo "Built $PWD/$APP"

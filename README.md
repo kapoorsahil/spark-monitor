@@ -1,88 +1,100 @@
 # Spark Monitor
 
-A tiny native macOS menu bar app that shows what's running on a remote Linux host
-and opens its web UIs in one click. Built for the [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/),
-but it works against any SSH-reachable box.
-
-It **auto-scans** — point it at a host and it discovers services with zero setup
-on the remote: over SSH it lists listening TCP ports, probes which speak HTTP, and
-shows them grouped, with clickable ↗ rows that open the web UIs in your browser.
-The menu bar icon is a monochrome bolt that adapts to light/dark.
+A macOS menu bar app that shows what's running on a remote Linux box over SSH
+and opens its web UIs in your browser. Made for the NVIDIA DGX Spark. Works
+against any SSH-reachable host.
 
 ```
-┌──────────────────────────────┐
-│ ⚡ Spark Monitor        ● online  │   header: host + reachability pill
-│   nvidia-dgx-spark            │
-├──────────────────────────────┤
-│ APPS                          │   section headers in NVIDIA green
-│  ● Open WebUI       :8080  ↗  │
-│  ● DGX Dashboard    :11000 ↗  │
-│ MODELS                        │
-│  ● vllm             :8011     │
-│  ● litellm          :8000  ↗  │
-│ DATA                          │
-│  ● postgres         :5432     │
-├──────────────────────────────┤
-│ Updated 14:21:03  ↻ Refresh  ⏻ Quit │
-└──────────────────────────────┘
+┌──────────────────────────────────┐
+│ ⚡ Spark Monitor       ● online  │
+│   nvidia-dgx-spark               │
+├──────────────────────────────────┤
+│ APPS                             │
+│  ● Open WebUI       :8080    ↗   │
+│  ● DGX Dashboard    :11000   ↗   │
+│ MODELS                           │
+│  ● vllm             :8011        │
+│  ● litellm          :8000    ↗   │
+│ DATA                             │
+│  ● postgres         :5432        │
+├──────────────────────────────────┤
+│ Updated 14:21:03   ↻ Refresh  ⏻  │
+└──────────────────────────────────┘
 ```
 
-Green ● = listening, red ○ = down. Built with SwiftUI in an `NSPopover`.
+By default the app auto-detects services. It pipes a short script over SSH
+(nothing is installed on the host), lists listening TCP ports, checks which
+ones speak HTTP, and groups them by kind. Rows marked `↗` open in your
+browser.
 
-## Requirements
-- macOS 13+ and the Xcode command line tools: `xcode-select --install`
-- Passwordless SSH to the target host. Verify it works non-interactively:
-  ```bash
-  ssh <your-host> 'ss -tlnpH | head'
-  ```
+## Setup
 
-## Install
-Build a `SparkMonitor.app` bundle and drop it in `/Applications`:
+You need macOS 13 or later, the Xcode command line tools
+(`xcode-select --install`), and passwordless SSH to the host. Confirm SSH
+works without a prompt:
+
 ```bash
-SPARK_HOST=<your-host> ./make-app.sh --install   # builds, installs, launches
+ssh your-host hostname
 ```
-`make-app.sh` with no flag just builds `SparkMonitor.app` in this folder to drag into
-`/Applications` yourself. It's a menu-bar-only app (`LSUIElement`, no Dock icon).
-Built locally it isn't quarantined; if Gatekeeper objects, right-click > Open once.
 
-- **Start at login:** System Settings > General > Login Items > **+** > `SparkMonitor.app`.
-- **After changes:** re-run `./make-app.sh --install` (quits the running copy and relaunches).
-- **Quick try without installing:** `swift build -c release && .build/release/SparkMonitor`
-  (runs in the menu bar but stops when the terminal closes).
+Then:
 
-## Configuration (environment variables)
+```bash
+git clone https://github.com/kapoorsahil/spark-monitor.git
+cd spark-monitor
+./setup.sh
+```
+
+`setup.sh` asks for your host, builds the app, installs it to
+`/Applications`, and adds it as a login item. The first build is slow
+because Swift downloads its toolchain.
+
+To change the host later, run `./setup.sh` again.
+
+## Configuration
+
+The app reads these environment variables from its `Info.plist`:
+
 | Var | Default | Purpose |
-|-----|---------|---------|
-| `SPARK_HOST` | `nvidia-dgx-spark` | SSH host/alias to poll |
-| `SPARK_HTTP_HOST` | = `SPARK_HOST` | host used to build openable URLs |
-| `SPARK_PORTS_CMD` | *(unset = auto-scan)* | override with your own remote command (see below) |
-| `SPARK_POLL_SECS` | `15` | poll interval |
+|---|---|---|
+| `SPARK_HOST` | `nvidia-dgx-spark` | SSH host or alias |
+| `SPARK_HTTP_HOST` | same as `SPARK_HOST` | host used when building URLs |
+| `SPARK_PORTS_CMD` | unset (auto-scan) | remote command that prints services as JSON |
+| `SPARK_POLL_SECS` | `15` | poll interval, seconds |
 
-Set these in the app's `Info.plist` `LSEnvironment`, or the `launchd` plist's
-`EnvironmentVariables`, to make them persistent.
+Re-running `setup.sh` rewrites `SPARK_HOST`. For the others, edit
+`LSEnvironment` in `/Applications/SparkMonitor.app/Contents/Info.plist` and
+relaunch the app.
 
-## How auto-scan works / using your own source
-With `SPARK_PORTS_CMD` unset, the app pipes [`scan-ports.sh`](scan-ports.sh) to the
-host via `ssh host bash -s` (nothing is installed remotely) and renders its JSON.
-To use a curated list instead — your own names, groups, and URLs — set
-`SPARK_PORTS_CMD` to any command on the host that prints the same JSON array:
+## Curating the list yourself
+
+Auto-scan labels services by their process name (`vllm`, `node`, `postgres`)
+and detects which ones serve a web UI. If you want nicer names and
+grouping, set `SPARK_PORTS_CMD` to any command on the host that prints this
+shape:
 
 ```json
-[{"port":8080,"service":"Open WebUI","group":"ui","notes":"","up":true,"cmd":"","path":"/"}]
+[
+  {"port": 8080, "service": "Open WebUI", "group": "ui",        "notes": "", "up": true, "cmd": "", "path": "/"},
+  {"port": 8011, "service": "vLLM smart", "group": "inference", "notes": "80B model", "up": true, "cmd": "", "path": ""}
+]
 ```
-- `group`: one of `ui` `inference` `mcp` `orchestration` `tools` `data` `service` (drives the section + order)
-- `path`: `/` (or any path) makes the row clickable/openable; empty = info-only
-- `up`: `false` renders a dimmed red-dot row
 
-## Snappier polling (optional)
-Each poll opens a fresh SSH connection. To make it instant, enable connection
-multiplexing in `~/.ssh/config`:
+`group` is one of `ui`, `inference`, `mcp`, `orchestration`, `tools`,
+`data`, `service`. A non-empty `path` makes the row clickable.
+
+## Faster polling
+
+Each refresh opens a fresh SSH connection. To keep one open in the
+background, add to `~/.ssh/config`:
+
 ```
-Host nvidia-dgx-spark
+Host your-host
     ControlMaster auto
     ControlPath ~/.ssh/cm-%r@%h:%p
     ControlPersist 10m
 ```
 
 ## License
-MIT — see [LICENSE](LICENSE).
+
+MIT.

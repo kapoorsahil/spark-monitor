@@ -1,20 +1,19 @@
 import SwiftUI
 import AppKit
 
-// SparkMonitor — a macOS menu bar status panel for a remote host (built for the NVIDIA
-// DGX Spark, works against any SSH-reachable Linux box).
+// SparkMonitor: macOS menu bar status panel for a remote host. Made for the
+// NVIDIA DGX Spark; works against any SSH-reachable Linux box.
 //
-// By default it AUTO-SCANS: it pipes a small scanner (scanScript, below) to the
-// host via `ssh host bash -s` — nothing is installed remotely — which lists
-// listening TCP ports, probes which speak HTTP, and emits JSON. The panel shows
-// what's up grouped by kind, with click-to-open for the web UIs.
+// When SPARK_PORTS_CMD is unset, the app pipes scanScript (below) over
+// `ssh host bash -s`. The script lists listening TCP ports, probes which
+// speak HTTP, and emits JSON. Setting SPARK_PORTS_CMD overrides this with
+// any remote command that prints the same JSON shape.
 //
-// Config via environment (all optional):
-//   SPARK_HOST       SSH host/alias (default: nvidia-dgx-spark)
-//   SPARK_PORTS_CMD  override the auto-scan with your own remote command emitting the
-//                  same JSON shape (e.g. a curated ports.sh) — unset = auto-scan
-//   SPARK_HTTP_HOST  host used to build openable URLs (default: same as SPARK_HOST)
-//   SPARK_POLL_SECS  poll interval in seconds (default: 15)
+// Env vars:
+//   SPARK_HOST       SSH host or alias. Default: nvidia-dgx-spark.
+//   SPARK_PORTS_CMD  Remote command to run instead of the auto-scan.
+//   SPARK_HTTP_HOST  Host used when building URLs. Default: same as SPARK_HOST.
+//   SPARK_POLL_SECS  Poll interval in seconds. Default: 15.
 
 struct Service: Codable, Identifiable {
     let port: Int
@@ -40,8 +39,8 @@ let groupOrder: [(key: String, label: String)] = [
     ("service", "Other"),
 ]
 
-// Generic scanner piped to the host over `ssh host bash -s` when SPARK_PORTS_CMD is
-// unset. Mirrors scan-ports.sh in the repo root — keep the two in sync.
+// Scanner piped to the host when SPARK_PORTS_CMD is unset. Mirrors
+// scan-ports.sh in the repo root; keep the two in sync.
 let scanScript = #"""
 PROBE_TIMEOUT="${SPARK_PROBE_TIMEOUT:-0.6}"
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
@@ -239,7 +238,7 @@ struct PanelView: View {
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle").foregroundColor(Theme.red)
-                    Text("Host unreachable — \(store.sshHost)")
+                    Text("Host unreachable: \(store.sshHost)")
                         .font(.system(size: 12)).foregroundColor(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

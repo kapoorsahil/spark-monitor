@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# Generic auto-scanner for SparkMonitor. Run on the target host (the app pipes it over
-# SSH: `ssh host bash -s < scan-ports.sh`), emits a JSON array the app renders.
+# Auto-scanner for SparkMonitor. The app pipes this over SSH:
+#   ssh host bash -s < scan-ports.sh
+# Lists listening TCP ports, probes which speak HTTP, and prints JSON.
 #
-# No configuration and no install needed: it lists listening TCP ports, probes
-# which ones speak HTTP (those become clickable "open" rows), and labels each by
-# its listening process. For curated names/groups, point the app's SPARK_PORTS_CMD
-# at your own script that emits the same shape instead.
+# To use a curated list instead, set SPARK_PORTS_CMD to any command on the
+# host that prints the same shape.
 #
-# JSON contract (one object per service):
+# Output shape, one object per service:
 #   {"port":int,"service":str,"group":str,"notes":str,"up":bool,"cmd":str,"path":str}
-#   group  : ui | inference | data | mcp | service   (drives section + ordering)
-#   path   : "/" when HTTP was detected (openable), else ""  (up is always true here)
+#   group: ui | inference | data | mcp | service (drives section ordering)
+#   path:  "/" when HTTP was detected (clickable row), else ""
 
 PROBE_TIMEOUT="${SPARK_PROBE_TIMEOUT:-0.6}"
 
