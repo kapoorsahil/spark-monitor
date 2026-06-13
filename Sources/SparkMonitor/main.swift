@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 // SparkMonitor: macOS menu bar status panel for a remote host. Made for the
 // NVIDIA DGX Spark; works against any SSH-reachable Linux box.
@@ -42,35 +43,102 @@ let groupOrder: [(key: String, label: String)] = [
 // Scanner piped to the host when SPARK_PORTS_CMD is unset. Mirrors
 // scan-ports.sh in the repo root; keep the two in sync.
 let scanScript = #"""
-PROBE_TIMEOUT="${SPARK_PROBE_TIMEOUT:-0.6}"
+PROBE_TIMEOUT="${SPARK_PROBE_TIMEOUT:-1.5}"
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 rows=$(ss -tlnpH 2>/dev/null | awk '{
   split($4, a, ":"); p = a[length(a)];
+  addr = $4; sub(/:[^:]+$/, "", addr);
+  net = (addr == "127.0.0.1" || addr == "[::1]") ? 0 : 1;
   c = ""; if (match($0, /users:\(\("[^"]+"/)) c = substr($0, RSTART+9, RLENGTH-10);
-  print p "\t" c
-}' | awk -F'\t' '$1+0 >= 1 && $1+0 < 32768 && !seen[$1]++ &&
+  printf "%s|%s|%s\n", p, c, net
+}' | awk -F'|' '$1+0 >= 1 && $1+0 < 32768 && !seen[$1]++ &&
     $1 != 22 && $1 != 25 && $1 != 53 && $1 != 631 && $1 != 5353' \
-  | sort -t"$(printf '\t')" -k1,1n)
+  | sort -t'|' -k1,1n)
 [ -z "$rows" ] && { echo '[]'; exit 0; }
 tmp=$(mktemp -d)
-while IFS=$'\t' read -r port cmd; do
-  ( code=$(curl -s -o /dev/null -m "$PROBE_TIMEOUT" -w '%{http_code}' "http://127.0.0.1:$port/" 2>/dev/null)
-    [ -n "$code" ] && [ "$code" != "000" ] && echo 1 > "$tmp/$port" ) &
+while IFS='|' read -r port cmd net; do
+  printf '%s' "$net" > "$tmp/${port}.net"
+done <<< "$rows"
+while IFS='|' read -r port cmd net; do
+  ( curl -s -m "$PROBE_TIMEOUT" "http://127.0.0.1:$port/" 2>/dev/null \
+      | head -c 16384 > "$tmp/${port}.body"
+    if [ -s "$tmp/${port}.body" ]; then
+      printf '1' > "$tmp/${port}.http"
+    else
+      rm -f "$tmp/${port}.body"
+    fi
+    if [ -f "$tmp/${port}.http" ]; then
+      models=$(curl -s -m 1 "http://127.0.0.1:$port/v1/models" 2>/dev/null)
+      printf '%s' "$models" | grep -q '"object"[[:space:]]*:[[:space:]]*"list"' && printf '%s' "$models" > "$tmp/${port}.vllm"
+      tags=$(curl -s -m 1 "http://127.0.0.1:$port/api/tags" 2>/dev/null)
+      printf '%s' "$tags" | grep -q '"models"' && printf '%s' "$tags" > "$tmp/${port}.ollama"
+    fi ) &
 done <<< "$rows"
 wait
+extract_title() { sed -n 's/.*<title[^>]*>\([^<]*\)<\/title>.*/\1/Ip' "$1" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
+match_title() {
+  local t="$1"
+  case "$t" in
+    *"Open WebUI"*) echo "Open WebUI|ui|/";; *"AnythingLLM"*) echo "AnythingLLM|ui|/";;
+    *"Lobe Chat"*) echo "Lobe Chat|ui|/";; *"Jan"*) echo "Jan|ui|/";;
+    *"text-generation-webui"*) echo "oobabooga|ui|/";; *"LiteLLM"*) echo "LiteLLM|inference|/";;
+    *"LocalAI"*) echo "LocalAI|inference|/";; *"Stable Diffusion"*) echo "Stable Diffusion|ui|/";;
+    *"ComfyUI"*) echo "ComfyUI|ui|/";; *"InvokeAI"*) echo "InvokeAI|ui|/";;
+    *"Flowise"*) echo "Flowise|orchestration|/";; *"LangFlow"*) echo "LangFlow|orchestration|/";;
+    *"n8n"*) echo "n8n|orchestration|/";; *"Dify"*) echo "Dify|orchestration|/";;
+    *"JupyterLab"*) echo "JupyterLab|data|/";; *"Jupyter"*) echo "Jupyter|data|/";;
+    *"Grafana"*) echo "Grafana|data|/";; *"Prometheus"*) echo "Prometheus|data|/";;
+    *"Netdata"*) echo "Netdata|data|/";; *"pgAdmin"*) echo "pgAdmin|data|/";;
+    *"Metabase"*) echo "Metabase|data|/";; *"code-server"*) echo "code-server|tools|/";;
+    *"Gitea"*) echo "Gitea|tools|/";; *"Portainer"*) echo "Portainer|tools|/";;
+    *"Traefik"*) echo "Traefik|tools|/";; *"SearXNG"*) echo "SearXNG|tools|/";;
+    *"Whoogle"*) echo "Whoogle|tools|/";; *) echo "";;
+  esac
+}
 classify_group() {
-  case "$1" in 5432|3306|6379|27017|5984|9200|54329) echo data; return;; 11434|8000|8001|8011|8012|8013|8014) echo inference; return;; esac
-  case "$2" in postgres|mysqld|redis*|mongod) echo data; return;; ollama|vllm|*python*) echo inference; return;; esac
-  [ "$3" = 1 ] && { echo ui; return; }; echo service
+  local port="$1" cmd="$2" http="$3"
+  case "$port" in 5432|3306|6379|27017|5984|9200) echo data; return;; esac
+  case "$cmd" in postgres|mysqld|redis*|mongod) echo data; return;; ollama) echo inference; return;; *python*|*uvicorn*) echo inference; return;; esac
+  [ "$http" = 1 ] && { echo ui; return; }; echo service
 }
 printf '['
 first=1
-while IFS=$'\t' read -r port cmd; do
+while IFS='|' read -r port cmd net; do
   [ -z "$port" ] && continue
-  http=0; [ -f "$tmp/$port" ] && http=1
-  name="${cmd:-port $port}"; group=$(classify_group "$port" "$cmd" "$http")
-  path=""; [ "$http" = 1 ] && path="/"
-  notes=""; [ -n "$cmd" ] && notes="process: $cmd"
+  http=0; [ -f "$tmp/${port}.http" ] && http=1
+  network=1; [ -f "$tmp/${port}.net" ] && network=$(cat "$tmp/${port}.net")
+  name=""; group=""; path=""; notes_override=""
+  if [ "$http" = 1 ]; then
+    if [ -f "$tmp/${port}.vllm" ]; then
+      model_id=$(grep -o '"id":"[^"]*"' "$tmp/${port}.vllm" 2>/dev/null | head -1 | cut -d'"' -f4)
+      name="${model_id:+vLLM ($model_id)}"; name="${name:-vLLM}"; group="inference"; path=""
+    elif [ -f "$tmp/${port}.ollama" ]; then
+      model_names=$(grep -o '"name":"[^"]*"' "$tmp/${port}.ollama" 2>/dev/null | cut -d'"' -f4 | head -3 | paste -sd ',' - 2>/dev/null)
+      name="Ollama"; group="inference"; path=""
+      [ -n "$model_names" ] && notes_override="$model_names"
+    elif [ -f "$tmp/${port}.body" ]; then
+      title=$(extract_title "$tmp/${port}.body")
+      if [ -n "$title" ]; then
+        sig=$(match_title "$title")
+        if [ -n "$sig" ]; then
+          name=$(printf '%s' "$sig" | cut -d'|' -f1)
+          group=$(printf '%s' "$sig" | cut -d'|' -f2)
+          path=$(printf '%s' "$sig" | cut -d'|' -f3)
+        else
+          name="$title"; group="ui"; path="/"
+        fi
+      fi
+    fi
+    [ -z "$name" ] && path="/"
+    [ "$network" = 0 ] && path=""
+  fi
+  [ -z "$name" ] && name="${cmd:-port $port}"
+  [ -z "$group" ] && group=$(classify_group "$port" "$cmd" "$http")
+  if [ -n "$notes_override" ]; then
+    notes="$notes_override"
+  else
+    notes=""; [ -n "$cmd" ] && notes="process: $cmd"
+  fi
   [ $first -eq 1 ] && first=0 || printf ','
   printf '{"port":%s,"service":"%s","group":"%s","notes":"%s","up":true,"cmd":"%s","path":"%s"}' \
     "$port" "$(json_escape "$name")" "$group" "$(json_escape "$notes")" "$(json_escape "$cmd")" "$path"
@@ -115,21 +183,31 @@ func iconName(for svc: Service) -> String {
 final class Store: ObservableObject {
     @Published var services: [Service] = []
     @Published var reachable = false
+    @Published var fetching = false
     @Published var lastUpdate: Date?
+    @Published var offlineSince: Date?
 
     let sshHost = ProcessInfo.processInfo.environment["SPARK_HOST"] ?? "nvidia-dgx-spark"
     let httpHost = ProcessInfo.processInfo.environment["SPARK_HTTP_HOST"]
         ?? ProcessInfo.processInfo.environment["SPARK_HOST"] ?? "nvidia-dgx-spark"
-    // nil => auto-scan (pipe scanScript over `bash -s`); set => run this verbatim.
     let overrideCmd = ProcessInfo.processInfo.environment["SPARK_PORTS_CMD"]
 
     func refresh() {
+        guard !fetching else { return }
+        fetching = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
             let (ok, list) = self.fetch()
             DispatchQueue.main.async {
+                self.fetching = false
                 self.reachable = ok
-                if ok { self.services = list; self.lastUpdate = Date() }
+                if ok {
+                    self.services = list
+                    self.lastUpdate = Date()
+                    self.offlineSince = nil
+                } else if self.offlineSince == nil {
+                    self.offlineSince = Date()
+                }
             }
         }
     }
@@ -181,7 +259,18 @@ struct ServiceRow: View {
                 .font(.system(size: 13))
                 .foregroundColor(Theme.textPrimary.opacity(0.75))
                 .frame(width: 17)
-            Text(svc.service).font(.system(size: 13)).foregroundColor(Theme.textPrimary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(svc.service)
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textPrimary)
+                if !svc.notes.isEmpty && !svc.notes.hasPrefix("process:") {
+                    Text(svc.notes)
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
             Spacer(minLength: 6)
             Text(":\(svc.port)").font(.system(size: 11)).foregroundColor(Theme.textMuted)
             if svc.openable {
@@ -192,7 +281,21 @@ struct ServiceRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(hovered && svc.openable ? Theme.rowHover : Color.clear))
         .contentShape(Rectangle())
         .opacity(svc.up ? 1 : 0.5)
-        .help(svc.notes)
+        .contextMenu {
+            if svc.openable {
+                Button("Open in Browser") { store.open(svc) }
+                Divider()
+                Button("Copy URL") {
+                    let url = "http://\(store.httpHost):\(svc.port)\(svc.path)"
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                }
+            }
+            Button("Copy :\(svc.port)") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("\(svc.port)", forType: .string)
+            }
+        }
 
         if svc.openable {
             Button(action: { store.open(svc) }) { row }
@@ -206,6 +309,7 @@ struct ServiceRow: View {
 
 struct PanelView: View {
     @ObservedObject var store: Store
+    @State private var collapsed: Set<String> = []
 
     var visibleGroups: [(key: String, label: String)] {
         groupOrder.filter { g in store.services.contains { $0.group == g.key } }
@@ -215,21 +319,23 @@ struct PanelView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(Theme.divider)
-            if store.reachable {
+            if store.reachable || !store.services.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(visibleGroups, id: \.key) { g in
-                            Text(g.label.uppercased())
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .tracking(0.6)
-                                .foregroundColor(Theme.green)
-                                .padding(.horizontal, 15).padding(.top, 11).padding(.bottom, 3)
-                            VStack(spacing: 0) {
-                                ForEach(store.services.filter { $0.group == g.key }) { svc in
-                                    ServiceRow(svc: svc, store: store)
-                                }
+                        if !store.reachable, let since = store.offlineSince {
+                            HStack(spacing: 6) {
+                                Image(systemName: "wifi.slash")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Theme.red)
+                                Text("Offline since \(timeStr(since))")
+                                    .font(.system(size: 10.5))
+                                    .foregroundColor(Theme.red.opacity(0.85))
+                                Spacer()
                             }
-                            .padding(.horizontal, 7)
+                            .padding(.horizontal, 15).padding(.top, 10).padding(.bottom, 2)
+                        }
+                        ForEach(visibleGroups, id: \.key) { g in
+                            groupSection(g)
                         }
                     }
                     .padding(.bottom, 6)
@@ -249,6 +355,42 @@ struct PanelView: View {
         }
         .frame(width: 312)
         .background(Theme.panel)
+    }
+
+    @ViewBuilder
+    func groupSection(_ g: (key: String, label: String)) -> some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                if collapsed.contains(g.key) { collapsed.remove(g.key) }
+                else { collapsed.insert(g.key) }
+            }
+        }) {
+            HStack(spacing: 4) {
+                Text(g.label.uppercased())
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundColor(Theme.green)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Theme.green.opacity(0.7))
+                    .rotationEffect(.degrees(collapsed.contains(g.key) ? -90 : 0))
+                    .animation(.easeInOut(duration: 0.15), value: collapsed.contains(g.key))
+            }
+            .padding(.horizontal, 15).padding(.top, 11).padding(.bottom, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+
+        if !collapsed.contains(g.key) {
+            VStack(spacing: 0) {
+                ForEach(store.services.filter { $0.group == g.key }) { svc in
+                    ServiceRow(svc: svc, store: store)
+                }
+            }
+            .padding(.horizontal, 7)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
     }
 
     var header: some View {
@@ -274,9 +416,13 @@ struct PanelView: View {
         HStack(spacing: 14) {
             Text(stamp).font(.system(size: 11)).foregroundColor(Theme.textMuted)
             Spacer()
-            Button(action: { store.refresh() }) {
-                Label("Refresh", systemImage: "arrow.clockwise").font(.system(size: 11))
-            }.buttonStyle(.plain).foregroundColor(Theme.textMuted)
+            if store.fetching {
+                ProgressView().scaleEffect(0.55).frame(width: 24, height: 16)
+            } else {
+                Button(action: { store.refresh() }) {
+                    Label("Refresh", systemImage: "arrow.clockwise").font(.system(size: 11))
+                }.buttonStyle(.plain).foregroundColor(Theme.textMuted)
+            }
             Button(action: { NSApp.terminate(nil) }) {
                 Label("Quit", systemImage: "power").font(.system(size: 11))
             }.buttonStyle(.plain).foregroundColor(Theme.textMuted)
@@ -286,8 +432,12 @@ struct PanelView: View {
 
     var stamp: String {
         guard let d = store.lastUpdate else { return "Updating…" }
+        return "Updated \(timeStr(d))"
+    }
+
+    func timeStr(_ date: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-        return "Updated \(f.string(from: d))"
+        return f.string(from: date)
     }
 }
 
@@ -298,13 +448,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let popover = NSPopover()
     let store = Store()
     var timer: Timer?
+    var eventMonitor: Any?
+    var cancellable: AnyCancellable?
     let pollSecs = Double(ProcessInfo.processInfo.environment["SPARK_POLL_SECS"] ?? "") ?? 15
 
     func applicationDidFinishLaunching(_ note: Notification) {
         let hosting = NSHostingController(rootView: PanelView(store: store))
         hosting.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hosting
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.appearance = NSAppearance(named: .darkAqua)
 
         if let button = statusItem.button {
@@ -312,6 +464,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image?.isTemplate = true
             button.action = #selector(togglePopover(_:))
             button.target = self
+        }
+
+        // Update status bar icon when reachability changes.
+        cancellable = store.$reachable.receive(on: RunLoop.main).sink { [weak self] reachable in
+            guard let self else { return }
+            let name = reachable ? "bolt.fill" : "bolt.slash"
+            self.statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "Spark Monitor")
+            self.statusItem.button?.image?.isTemplate = true
         }
 
         store.refresh()
@@ -323,17 +483,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func togglePopover(_ sender: Any?) {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(sender)
+            closePopover()
         } else {
             store.refresh()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                self?.closePopover()
+            }
+        }
+    }
+
+    func closePopover() {
+        popover.performClose(nil)
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
         }
     }
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory) // menu bar only, no Dock icon
+app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
