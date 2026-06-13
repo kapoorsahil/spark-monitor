@@ -14,14 +14,35 @@ if ! xcode-select -p >/dev/null 2>&1; then
     exit 1
 fi
 
+cat <<'EOF'
+Spark Monitor connects to your host over SSH. It needs key-based
+(passwordless) SSH already set up. The app cannot type a password for you,
+and it cannot answer key-passphrase or yes/no prompts.
+
+You should be able to run this without any prompt:
+    ssh your-host hostname
+
+If that prompts for a password, set up key auth first:
+    ssh-keygen -t ed25519                  # if you don't already have a key
+    ssh-copy-id user@your-host             # installs your public key on the host
+
+EOF
+
 default_host="${SPARK_HOST:-nvidia-dgx-spark}"
-read -rp "SSH host to monitor [$default_host]: " host
+read -rp "SSH host or alias [$default_host]: " host
 host="${host:-$default_host}"
 
-if ! ssh -o ConnectTimeout=4 -o BatchMode=yes "$host" true 2>/dev/null; then
+echo "Testing 'ssh $host'..."
+if ssh -o ConnectTimeout=4 -o BatchMode=yes "$host" true 2>/dev/null; then
+    echo "  ok"
+else
     echo
-    echo "Heads up: ssh '$host' didn't connect non-interactively. The app needs"
-    echo "passwordless SSH (key auth, no password prompt) to work."
+    echo "  FAILED: '$host' is not reachable without an interactive prompt."
+    echo "  Fix it with:"
+    echo "      ssh-copy-id $host"
+    echo "  then re-run ./setup.sh. Or continue and the app will sit on"
+    echo "  'Host unreachable' until SSH is fixed."
+    echo
     read -rp "Continue setup anyway? [y/N] " yn
     [[ "$yn" =~ ^[Yy] ]] || exit 1
 fi

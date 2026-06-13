@@ -29,13 +29,14 @@ browser.
 
 ## Setup
 
-You need macOS 13 or later, the Xcode command line tools
-(`xcode-select --install`), and passwordless SSH to the host. Confirm SSH
-works without a prompt:
+Requirements:
 
-```bash
-ssh your-host hostname
-```
+- macOS 13 or later
+- Xcode command line tools: `xcode-select --install`
+- **Key-based (passwordless) SSH to the host.** The app cannot type a
+  password for you. `ssh your-host hostname` must work without prompting.
+  If it asks for a password, run `ssh-copy-id user@your-host` first
+  (after `ssh-keygen -t ed25519` if you don't already have a key).
 
 Then:
 
