@@ -28,13 +28,11 @@ struct Service: Codable, Identifiable {
     var openable: Bool { up && !path.isEmpty }
 }
 
-// Display order + human labels for the `group` field. The first set matches a
-// curated ports.sh; "service" is the auto-scanner's catch-all and renders last.
 let groupOrder: [(key: String, label: String)] = [
     ("ui", "Apps"),
     ("inference", "Models"),
-    ("mcp", "MCP servers"),
-    ("orchestration", "Orchestration"),
+    ("mcp", "MCP"),
+    ("orchestration", "Agents"),
     ("tools", "Tools"),
     ("data", "Data"),
     ("service", "Other"),
@@ -147,38 +145,60 @@ printf ']\n'
 rm -rf "$tmp"
 """#
 
+// MARK: - Theme
+
 enum Theme {
     static let green = Color(red: 118/255, green: 185/255, blue: 0)
     static let red = Color(red: 0.886, green: 0.333, blue: 0.310)
     static let panel = Color(red: 0.086, green: 0.086, blue: 0.094)
+    static let surface = Color(white: 1, opacity: 0.04)
     static let rowHover = Color.white.opacity(0.06)
-    static let divider = Color.white.opacity(0.10)
+    static let divider = Color.white.opacity(0.08)
     static let textPrimary = Color(white: 0.92)
-    static let textMuted = Color(white: 0.55)
+    static let textMuted = Color(white: 0.48)
+    static let portBadge = Color.white.opacity(0.07)
+}
+
+func groupColor(_ group: String) -> Color {
+    switch group {
+    case "ui":            return Color(red: 0.38, green: 0.68, blue: 1.0)
+    case "inference":     return Color(red: 0.46, green: 0.73, blue: 0.0)
+    case "mcp":           return Color(red: 0.80, green: 0.55, blue: 1.0)
+    case "orchestration": return Color(red: 1.0,  green: 0.72, blue: 0.30)
+    case "tools":         return Color(red: 0.60, green: 0.85, blue: 0.75)
+    case "data":          return Color(red: 0.55, green: 0.75, blue: 1.0)
+    default:              return Theme.textMuted
+    }
 }
 
 func iconName(for svc: Service) -> String {
     let n = svc.service.lowercased()
-    if n.contains("webui") { return "bubble.left.and.bubble.right" }
+    if n.contains("webui") || n.contains("open webui") { return "bubble.left.and.bubble.right" }
     if n.contains("dashboard") { return "gauge.with.dots.needle.50percent" }
     if n.contains("token") { return "chart.line.uptrend.xyaxis" }
-    if n.contains("searxng") { return "magnifyingglass" }
-    if n.contains("paperclip") { return "paperclip" }
+    if n.contains("searxng") || n.contains("whoogle") { return "magnifyingglass" }
     if n.contains("litellm") { return "arrow.triangle.branch" }
-    if n.contains("openclaw") { return "network" }
-    if n.contains("postgres") { return "cylinder.split.1x2" }
+    if n.contains("jupyter") { return "diamond" }
+    if n.contains("grafana") { return "chart.bar.fill" }
+    if n.contains("prometheus") { return "flame" }
+    if n.contains("postgres") || n.contains("pgadmin") { return "cylinder.split.1x2" }
+    if n.contains("comfyui") || n.contains("stable diffusion") || n.contains("invokeai") { return "photo.artframe" }
+    if n.contains("code-server") { return "chevron.left.forwardslash.chevron.right" }
+    if n.contains("portainer") { return "shippingbox" }
+    if n.contains("gitea") { return "arrow.triangle.pull" }
+    if n.contains("n8n") || n.contains("flowise") || n.contains("langflow") { return "point.3.connected.trianglepath.dotted" }
     switch svc.group {
-    case "ui": return "macwindow"
-    case "inference": return "cpu"
-    case "mcp": return "puzzlepiece.extension"
+    case "ui":            return "macwindow"
+    case "inference":     return "cpu"
+    case "mcp":           return "puzzlepiece.extension"
     case "orchestration": return "point.3.connected.trianglepath.dotted"
-    case "tools": return "wrench.and.screwdriver"
-    case "data": return "internaldrive"
-    default: return "circle"
+    case "tools":         return "wrench.and.screwdriver"
+    case "data":          return "internaldrive"
+    default:              return "circle"
     }
 }
 
-// MARK: - Data store
+// MARK: - Store
 
 final class Store: ObservableObject {
     @Published var services: [Service] = []
@@ -245,7 +265,7 @@ final class Store: ObservableObject {
     }
 }
 
-// MARK: - Views
+// MARK: - ServiceRow
 
 struct ServiceRow: View {
     let svc: Service
@@ -253,16 +273,23 @@ struct ServiceRow: View {
     @State private var hovered = false
 
     var body: some View {
-        let row = HStack(spacing: 10) {
-            Circle().fill(svc.up ? Theme.green : Theme.red).frame(width: 7, height: 7)
+        let row = HStack(spacing: 0) {
+            // Group color accent bar
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(groupColor(svc.group).opacity(svc.up ? 0.7 : 0.25))
+                .frame(width: 3, height: 28)
+                .padding(.leading, 4).padding(.trailing, 10)
+
             Image(systemName: iconName(for: svc))
                 .font(.system(size: 13))
-                .foregroundColor(Theme.textPrimary.opacity(0.75))
-                .frame(width: 17)
-            VStack(alignment: .leading, spacing: 1) {
+                .foregroundColor(groupColor(svc.group).opacity(svc.up ? 0.85 : 0.4))
+                .frame(width: 18)
+                .padding(.trailing, 9)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(svc.service)
-                    .font(.system(size: 13))
-                    .foregroundColor(Theme.textPrimary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(svc.up ? Theme.textPrimary : Theme.textMuted)
                 if !svc.notes.isEmpty && !svc.notes.hasPrefix("process:") {
                     Text(svc.notes)
                         .font(.system(size: 10))
@@ -271,24 +298,37 @@ struct ServiceRow: View {
                         .truncationMode(.tail)
                 }
             }
-            Spacer(minLength: 6)
-            Text(":\(svc.port)").font(.system(size: 11)).foregroundColor(Theme.textMuted)
+
+            Spacer(minLength: 8)
+
+            // Port badge
+            Text("\(svc.port)")
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundColor(Theme.textMuted)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Theme.portBadge))
+                .padding(.trailing, svc.openable ? 8 : 12)
+
             if svc.openable {
-                Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundColor(Theme.green)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(hovered ? Theme.green : Theme.textMuted.opacity(0.6))
+                    .padding(.trailing, 12)
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hovered && svc.openable ? Theme.rowHover : Color.clear))
+        .frame(height: 40)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hovered && svc.openable ? Theme.rowHover : Color.clear)
+        )
         .contentShape(Rectangle())
-        .opacity(svc.up ? 1 : 0.5)
         .contextMenu {
             if svc.openable {
                 Button("Open in Browser") { store.open(svc) }
                 Divider()
                 Button("Copy URL") {
-                    let url = "http://\(store.httpHost):\(svc.port)\(svc.path)"
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url, forType: .string)
+                    NSPasteboard.general.setString("http://\(store.httpHost):\(svc.port)\(svc.path)", forType: .string)
                 }
             }
             Button("Copy :\(svc.port)") {
@@ -307,127 +347,211 @@ struct ServiceRow: View {
     }
 }
 
+// MARK: - GroupTabBar
+
+struct GroupTabBar: View {
+    let groups: [(key: String, label: String)]
+    @Binding var active: String
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 3) {
+                tabChip(key: "all", label: "All")
+                ForEach(groups, id: \.key) { g in
+                    tabChip(key: g.key, label: g.label)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+    }
+
+    @ViewBuilder
+    func tabChip(key: String, label: String) -> some View {
+        let isActive = active == key
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.12)) { active = key }
+        }) {
+            Text(label)
+                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                .foregroundColor(isActive ? Theme.green : Theme.textMuted)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(
+                    Capsule().fill(isActive ? Theme.green.opacity(0.13) : Color.clear)
+                )
+                .overlay(
+                    Capsule().stroke(isActive ? Theme.green.opacity(0.25) : Color.clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - PanelView
+
 struct PanelView: View {
     @ObservedObject var store: Store
-    @State private var collapsed: Set<String> = []
+    @State private var activeGroup = "all"
 
     var visibleGroups: [(key: String, label: String)] {
         groupOrder.filter { g in store.services.contains { $0.group == g.key } }
+    }
+
+    var filteredServices: [Service] {
+        activeGroup == "all" ? store.services : store.services.filter { $0.group == activeGroup }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(Theme.divider)
-            if store.reachable || !store.services.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !store.reachable, let since = store.offlineSince {
-                            HStack(spacing: 6) {
-                                Image(systemName: "wifi.slash")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Theme.red)
-                                Text("Offline since \(timeStr(since))")
-                                    .font(.system(size: 10.5))
-                                    .foregroundColor(Theme.red.opacity(0.85))
-                                Spacer()
-                            }
-                            .padding(.horizontal, 15).padding(.top, 10).padding(.bottom, 2)
-                        }
-                        ForEach(visibleGroups, id: \.key) { g in
-                            groupSection(g)
-                        }
-                    }
-                    .padding(.bottom, 6)
-                }
-                .frame(maxHeight: 460)
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle").foregroundColor(Theme.red)
-                    Text("Host unreachable: \(store.sshHost)")
-                        .font(.system(size: 12)).foregroundColor(Theme.textMuted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(15)
-            }
+            GroupTabBar(groups: visibleGroups, active: $activeGroup)
+            Divider().overlay(Theme.divider)
+            serviceList
             Divider().overlay(Theme.divider)
             footer
         }
-        .frame(width: 312)
+        .frame(width: 360)
         .background(Theme.panel)
     }
 
     @ViewBuilder
-    func groupSection(_ g: (key: String, label: String)) -> some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if collapsed.contains(g.key) { collapsed.remove(g.key) }
-                else { collapsed.insert(g.key) }
-            }
-        }) {
-            HStack(spacing: 4) {
-                Text(g.label.uppercased())
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundColor(Theme.green)
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(Theme.green.opacity(0.7))
-                    .rotationEffect(.degrees(collapsed.contains(g.key) ? -90 : 0))
-                    .animation(.easeInOut(duration: 0.15), value: collapsed.contains(g.key))
-            }
-            .padding(.horizontal, 15).padding(.top, 11).padding(.bottom, 3)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    var serviceList: some View {
+        if store.reachable || !store.services.isEmpty {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !store.reachable, let since = store.offlineSince {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wifi.slash")
+                                .font(.system(size: 10))
+                                .foregroundColor(Theme.red)
+                            Text("Offline since \(timeStr(since))")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(Theme.red.opacity(0.85))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 6)
+                    }
 
-        if !collapsed.contains(g.key) {
-            VStack(spacing: 0) {
-                ForEach(store.services.filter { $0.group == g.key }) { svc in
-                    ServiceRow(svc: svc, store: store)
+                    if activeGroup == "all" {
+                        ForEach(visibleGroups, id: \.key) { g in
+                            let svcs = store.services.filter { $0.group == g.key }
+                            if !svcs.isEmpty {
+                                sectionHeader(g.label)
+                                sectionRows(svcs)
+                            }
+                        }
+                    } else {
+                        sectionRows(filteredServices)
+                    }
                 }
+                .padding(.bottom, 6)
             }
-            .padding(.horizontal, 7)
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            .frame(maxHeight: 440)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .font(.system(size: 28))
+                    .foregroundColor(Theme.textMuted.opacity(0.4))
+                Text("Can't reach \(store.sshHost)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textMuted)
+                Button(action: { store.refresh() }) {
+                    Text("Try now")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.green)
+                        .padding(.horizontal, 14).padding(.vertical, 5)
+                        .background(Capsule().fill(Theme.green.opacity(0.10)))
+                        .overlay(Capsule().stroke(Theme.green.opacity(0.20), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 32)
         }
+    }
+
+    @ViewBuilder
+    func sectionHeader(_ label: String) -> some View {
+        HStack {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.8)
+                .foregroundColor(Theme.textMuted)
+            Rectangle().fill(Theme.divider).frame(height: 1)
+        }
+        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    func sectionRows(_ svcs: [Service]) -> some View {
+        VStack(spacing: 1) {
+            ForEach(svcs) { svc in
+                ServiceRow(svc: svc, store: store)
+            }
+        }
+        .padding(.horizontal, 8)
     }
 
     var header: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "bolt.fill").font(.system(size: 16)).foregroundColor(Theme.green)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Spark Monitor").font(.system(size: 14, weight: .medium)).foregroundColor(Theme.textPrimary)
-                Text(store.sshHost).font(.system(size: 11)).foregroundColor(Theme.textMuted)
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Theme.green.opacity(0.12))
+                    .frame(width: 30, height: 30)
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Theme.green)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Spark Monitor")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.textPrimary)
+                Text(store.sshHost)
+                    .font(.system(size: 10))
+                    .foregroundColor(Theme.textMuted)
             }
             Spacer()
-            HStack(spacing: 5) {
-                Circle().fill(store.reachable ? Theme.green : Theme.red).frame(width: 6, height: 6)
-                Text(store.reachable ? "online" : "offline").font(.system(size: 11))
-                    .foregroundColor(store.reachable ? Theme.green : Theme.red)
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(store.reachable ? Theme.green : Theme.red)
+                        .frame(width: 5, height: 5)
+                    Text(store.reachable ? "online" : "offline")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(store.reachable ? Theme.green : Theme.red)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill((store.reachable ? Theme.green : Theme.red).opacity(0.10)))
+                if !store.services.isEmpty {
+                    Text("\(store.services.count) services")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.textMuted)
+                }
             }
-            .padding(.horizontal, 9).padding(.vertical, 3)
-            .background(Capsule().fill((store.reachable ? Theme.green : Theme.red).opacity(0.14)))
         }
-        .padding(.horizontal, 15).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 11)
     }
 
     var footer: some View {
-        HStack(spacing: 14) {
-            Text(stamp).font(.system(size: 11)).foregroundColor(Theme.textMuted)
+        HStack(spacing: 12) {
+            Text(stamp)
+                .font(.system(size: 10.5))
+                .foregroundColor(Theme.textMuted)
             Spacer()
             if store.fetching {
-                ProgressView().scaleEffect(0.55).frame(width: 24, height: 16)
+                ProgressView().scaleEffect(0.55).frame(width: 22, height: 16)
             } else {
                 Button(action: { store.refresh() }) {
-                    Label("Refresh", systemImage: "arrow.clockwise").font(.system(size: 11))
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .font(.system(size: 11))
                 }.buttonStyle(.plain).foregroundColor(Theme.textMuted)
             }
             Button(action: { NSApp.terminate(nil) }) {
-                Label("Quit", systemImage: "power").font(.system(size: 11))
+                Label("Quit", systemImage: "power")
+                    .font(.system(size: 11))
             }.buttonStyle(.plain).foregroundColor(Theme.textMuted)
         }
-        .padding(.horizontal, 15).padding(.vertical, 9)
+        .padding(.horizontal, 14).padding(.vertical, 9)
     }
 
     var stamp: String {
@@ -466,7 +590,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        // Update status bar icon when reachability changes.
         cancellable = store.$reachable.receive(on: RunLoop.main).sink { [weak self] reachable in
             guard let self else { return }
             let name = reachable ? "bolt.fill" : "bolt.slash"
