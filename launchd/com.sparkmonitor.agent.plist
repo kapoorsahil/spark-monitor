@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.sahil.sparkmonitor</string>
+    <string>com.sparkmonitor.agent</string>
 
-    <!-- Edit this path if your checkout lives elsewhere. -->
+    <!-- Path to the installed binary. setup.sh installs to /Applications. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/sahil/Developer/DGX/spark-monitor/.build/release/SparkMonitor</string>
+        <string>/Applications/SparkMonitor.app/Contents/MacOS/SparkMonitor</string>
     </array>
 
     <key>RunAtLoad</key>
