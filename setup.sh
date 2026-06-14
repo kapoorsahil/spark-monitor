@@ -33,10 +33,8 @@ read -rp "SSH host or alias [$default_host]: " host
 host="${host:-$default_host}"
 
 echo "Testing 'ssh $host'..."
-ssh_ok=0
-if ssh -o ConnectTimeout=4 -o BatchMode=yes "$host" true 2>/dev/null; then
+if ssh -n -o ConnectTimeout=4 -o BatchMode=yes "$host" true 2>/dev/null; then
     echo "  ok"
-    ssh_ok=1
 else
     echo
     echo "  FAILED: '$host' is not reachable without an interactive prompt."
@@ -49,29 +47,6 @@ else
     [[ "$yn" =~ ^[Yy] ]] || exit 1
 fi
 
-# Curated service list: detect a ports.sh on the host that emits the JSON
-# the app expects. With this set the panel shows real service names; without
-# it, the app's bundled auto-scan labels rows by process name + port.
-ports_cmd="${SPARK_PORTS_CMD:-}"
-if [ -z "$ports_cmd" ] && [ $ssh_ok -eq 1 ]; then
-    for candidate in \
-        '$HOME/Developer/DGX/dgx-fleet/services/ports.sh' \
-        '$HOME/dgx-fleet/services/ports.sh' \
-        '$HOME/.config/spark-monitor/ports.sh'
-    do
-        if ssh -o BatchMode=yes "$host" "test -x $candidate" 2>/dev/null; then
-            echo
-            echo "Found a curated service list on $host:"
-            echo "    $candidate"
-            read -rp "Use it for nicer service names? [Y/n] " yn
-            if [[ ! "$yn" =~ ^[Nn] ]]; then
-                ports_cmd="bash $candidate --json"
-            fi
-            break
-        fi
-    done
-fi
-
 echo
 echo "Building..."
 ./make-app.sh
@@ -80,9 +55,6 @@ PLIST=$APP/Contents/Info.plist
 "$PB" -c "Delete :LSEnvironment" "$PLIST" 2>/dev/null || true
 "$PB" -c "Add :LSEnvironment dict" "$PLIST"
 "$PB" -c "Add :LSEnvironment:SPARK_HOST string $host" "$PLIST"
-if [ -n "$ports_cmd" ]; then
-    "$PB" -c "Add :LSEnvironment:SPARK_PORTS_CMD string $ports_cmd" "$PLIST"
-fi
 
 echo "Installing to /Applications..."
 osascript -e 'tell application "SparkMonitor" to quit' 2>/dev/null || true
